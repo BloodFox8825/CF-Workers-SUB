@@ -1,7 +1,7 @@
 
 // 部署完成后在网址后面加上这个，获取自建节点和机场聚合节点，/?token=auto或/auto或
 
-let mytoken = 'auto'; //可以随便取，或者uuid生成，https://1024tools.com/uuid
+let mytoken = ''; //可以随便取，或者uuid生成，https://1024tools.com/uuid
 let BotToken =''; //可以为空，或者@BotFather中输入/start，/newbot，并关注机器人
 let ChatID =''; //可以为空，或者@userinfobot中获取，/start
 let TG = 0; //小白勿动， 开发者专用，1 为推送所有的访问信息，0 为不推送订阅转换后端的访问信息与异常访问
@@ -12,17 +12,50 @@ let timestamp = 4102329600000;//2099-12-31
 
 //节点链接 + 订阅链接
 let MainData = `
-vless://b7a392e2-4ef0-4496-90bc-1c37bb234904@cf.090227.xyz:443?encryption=none&security=tls&sni=edgetunnel-2z2.pages.dev&fp=random&type=ws&host=edgetunnel-2z2.pages.dev&path=%2F%3Fed%3D2048#%E5%8A%A0%E5%85%A5%E6%88%91%E7%9A%84%E9%A2%91%E9%81%93t.me%2FCMLiussss%E8%A7%A3%E9%94%81%E6%9B%B4%E5%A4%9A%E4%BC%98%E9%80%89%E8%8A%82%E7%82%B9
-https://sub.xf.free.hr/auto
 `
 
 let urls = [];
-let subconverter = "subapi-loadbalancing.pages.dev"; //在线订阅转换后端，目前使用CM的订阅转换功能。支持自建psub 可自行搭建https://github.com/bulianglin/psub
+let subconverter = "subscribeagent.battlewolf.win"; //在线订阅转换后端，目前使用CM的订阅转换功能。支持自建psub 可自行搭建https://github.com/bulianglin/psub
 let subconfig = "https://raw.githubusercontent.com/cmliu/ACL4SSR/main/Clash/config/ACL4SSR_Online_MultiCountry.ini"; //订阅配置文件
 let subProtocol = 'https';
 
 export default {
+	async fetchData(urls) {
+		const responses = await Promise.allSettled(urls.map(url =>
+			fetch(url, {
+				method: 'get',
+				headers: {
+					'Accept': 'text/html,application/xhtml+xml,application/xml;',
+					'User-Agent': `${追加UA} cmliu/CF-Workers-SUB ${userAgentHeader}`
+				},
+				signal: controller.signal // 将AbortController的信号量添加到fetch请求中，以便于需要时可以取消请求
+			}).then(response => {
+				console.log(`----${url}----`);
+				if (response.ok) {
+					return response.text().then(content => {
+						console.log(content);
+						// 这里可以顺便做内容检查
+						if (content.includes('dns') && content.includes('proxies') && content.includes('proxy-groups')) {
+							//console.log("clashsub: " + url);
+							订阅转换URL += "|" + url;
+						} else if (content.includes('dns') && content.includes('outbounds') && content.includes('inbounds')){
+							//console.log("singboxsub: " + url);
+							订阅转换URL += "|" + url;
+						} else {
+							//console.log("未识别" + url);
+							return content; // 保证链式调用中的下一个then可以接收到文本内容
+						}
+					});
+				} else {
+					console.error(`${response.statusText}(${response.status})`);
+					return ""; // 如果response.ok为false，返回空字符串
+				}
+			})
+		));
+	},
+
 	async fetch (request,env) {
+		urls=[];
 		const userAgentHeader = request.headers.get('User-Agent');
 		const userAgent = userAgentHeader ? userAgentHeader.toLowerCase() : "null";
 		const url = new URL(request.url);
@@ -103,7 +136,7 @@ export default {
 	
 			const timeout = setTimeout(() => {
 				controller.abort(); // 取消所有请求
-			}, 2000); // 2秒后触发
+			}, 30000); // 30秒后触发
 	
 
 			let 追加UA = 'v2rayn';
@@ -114,8 +147,12 @@ export default {
 			} else if(url.searchParams.has('surge')){
 				追加UA = 'surge';
 			}
-			
+
+			console.log(`Total: ${urls.length} urls.`);
+
 			try {
+				//异步执行
+				/*////////////////////////////////////////////////////////////////
 				const responses = await Promise.allSettled(urls.map(url =>
 					fetch(url, {
 						method: 'get',
@@ -125,8 +162,10 @@ export default {
 						},
 						signal: controller.signal // 将AbortController的信号量添加到fetch请求中，以便于需要时可以取消请求
 					}).then(response => {
+						console.log(`----${url}----`);
 						if (response.ok) {
 							return response.text().then(content => {
+								console.log(content);
 								// 这里可以顺便做内容检查
 								if (content.includes('dns') && content.includes('proxies') && content.includes('proxy-groups')) {
 									//console.log("clashsub: " + url);
@@ -138,27 +177,66 @@ export default {
 									//console.log("未识别" + url);
 									return content; // 保证链式调用中的下一个then可以接收到文本内容
 								}
-								//console.log(content);
 							});
 						} else {
+							console.error(`${response.statusText}(${response.status})`);
 							return ""; // 如果response.ok为false，返回空字符串
 						}
 					})
-				));	
-			
-				for (const response of responses) {
-					if (response.status === 'fulfilled' && response.value) {
-						const content = response.value;
-						req_data += base64Decode(content) + '\n';
+				));
+				*////////////////////////////////////////////////////////////////
+
+				// 用于收集每个请求结果的数组
+				const responses = [];
+
+				// 同步执行fetch请求并收集结果
+				for (const url of urls) {
+					try {
+						const response = await fetch(url, {
+							method: 'get',
+							headers: {
+								'Accept': 'text/html,application/xhtml+xml,application/xml;',
+								'User-Agent': `${追加UA} cmliu/CF-Workers-SUB ${userAgentHeader}`
+							},
+							signal: controller.signal
+						});
+
+						// 检查响应状态
+						if (response.ok) {
+							const content = await response.text();
+							console.log(content);
+							// 根据内容检查逻辑处理订阅转换URL
+							if (content.includes('dns') && content.includes('proxies') && content.includes('proxy-groups')) {
+								订阅转换URL += "|" + url;
+							} else if (content.includes('dns') && content.includes('outbounds') && content.includes('inbounds')) {
+								订阅转换URL += "|" + url;
+							}
+							// 将响应添加到响应数组中
+							responses.push({ url, content });
+						} else {
+							console.error(`${response.statusText}(${response.status})`);
+						}
+					} catch (error) {
+						console.error(`请求错误: ${url}, ${error}`);
 					}
+				}
+
+				console.log(`Total: ${responses.length} response`)
+				for (const response of responses) {
+						const content = response.content;
+						const data = base64Decode(content); 
+						req_data += data + '\n';
 				}
 			
 			} catch (error) {
-				//console.error(error);
+				console.error(error);
 			} finally {
 				// 无论成功或失败，最后都清除设置的超时定时器
 				clearTimeout(timeout);
 			}
+			
+			console.log('---------ALL---------')
+			console.log(req_data);
 
 			//修复中文错误
 			const utf8Encoder = new TextEncoder();
@@ -168,7 +246,7 @@ export default {
 			//去重
 			const uniqueLines = new Set(text.split('\n'));
 			const result = [...uniqueLines].join('\n');
-			console.log(result);
+			//console.log(result);
 			
 			const base64Data = btoa(result);
 
@@ -187,11 +265,13 @@ export default {
 			} else if (订阅格式 == 'surge'){
 				subconverterUrl = `${subProtocol}://${subconverter}/sub?target=surge&url=${encodeURIComponent(订阅转换URL)}&insert=false&config=${encodeURIComponent(subconfig)}&emoji=true&list=false&tfo=false&scv=true&fdn=false&sort=false&new_name=true`;
 			}
-			console.log(订阅转换URL);
+			console.log("----subconverterUrl----")
+			console.log(subconverterUrl);
 			try {
 				const subconverterResponse = await fetch(subconverterUrl);
 				
 				if (!subconverterResponse.ok) {
+					console.error(`Error fetching subconverterUrl: ${subconverterResponse.status} ${subconverterResponse.statusText}`);
 					return new Response(base64Data ,{
 						headers: { 
 							"content-type": "text/plain; charset=utf-8",
@@ -202,6 +282,8 @@ export default {
 					//throw new Error(`Error fetching subconverterUrl: ${subconverterResponse.status} ${subconverterResponse.statusText}`);
 				}
 				let subconverterContent = await subconverterResponse.text();
+				console.log("----subconverterContent----")
+				console.log(subconverterContent);
 				if (订阅格式 == 'clash') subconverterContent =await clashFix(subconverterContent);
 				return new Response(subconverterContent, {
 					headers: { 
